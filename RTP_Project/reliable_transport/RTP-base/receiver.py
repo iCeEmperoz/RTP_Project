@@ -15,24 +15,25 @@ def receiver(ip, port, window_size):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((ip, port))
 
-    expected_seq = 1
-    received_data = {}
-    buffer = {}
+    expected_seq = 1 # So thu tu goi tin dang cho nhan
+    received_data = {} # Luu thu tu cac pkt da nhan, nhung ko dung thu tu
+    buffer = {}  #Luu du lieu dung thu tu 
     in_session = False
-
+    
     while True:
         pkt_bytes, addr = sock.recvfrom(MAX_PACKET_SIZE)
 
         if len(pkt_bytes) < HEADER_SIZE:
-            continue
+            continue # Bo qua neu kich thuoc ko hop le 
 
         pkt = PacketHeader(pkt_bytes[:HEADER_SIZE])
         payload = pkt_bytes[HEADER_SIZE:HEADER_SIZE + pkt.length]
 
-        original_checksum = pkt.checksum
+        # Kiem tra checksum
+        ck = pkt.checksum
         pkt.checksum = 0
-        if compute_checksum(pkt / payload) != original_checksum:
-            continue  # Drop corrupted packet
+        if compute_checksum(pkt / payload) != ck:
+            continue  # Goi loi bo qua
 
         if pkt.type == 0 and pkt.seq_num == 0:
             # START packet
@@ -48,20 +49,21 @@ def receiver(ip, port, window_size):
                 continue  # Outside window
 
             if pkt.seq_num < expected_seq:
-                send_ack(sock, addr, expected_seq)
+                send_ack(sock, addr, expected_seq) #Gui lai ACK neu la goi cu
                 continue
 
-            if pkt.seq_num not in received_data:
-                received_data[pkt.seq_num] = payload
+            if pkt.seq_num not in received_data: #Goi moi 
+                received_data[pkt.seq_num] = payload #Luu goi moi nhan
 
+            # Luu tuan tu vao buffer neu du thu tu
             while expected_seq in received_data:
                 buffer[expected_seq] = received_data[expected_seq]
                 del received_data[expected_seq]
                 expected_seq += 1
 
-            send_ack(sock, addr, expected_seq)
+            send_ack(sock, addr, expected_seq) #Gui lai goi ACK tiep theo dang cho
 
-        elif pkt.type == 1 and in_session:
+        elif pkt.type == 1 and in_session: 
             # END packet
             send_ack(sock, addr, pkt.seq_num + 1)
             break

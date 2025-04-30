@@ -15,36 +15,35 @@ def receiver(ip, port, window_size):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((ip, port))
 
-    expected_seq = 1
-    received_data = {}
-    in_session = False
+    expected_seq = 1 # So thu tu goi tin dang cho nhan
+    received_data = {} 
 
     while True:
         pkt_bytes, addr = sock.recvfrom(MAX_PACKET_SIZE)
 
         if len(pkt_bytes) < HEADER_SIZE:
-            continue
+            continue # Bo qua neu kich thuoc ko hop le 
 
         pkt = PacketHeader(pkt_bytes[:HEADER_SIZE])
         payload = pkt_bytes[HEADER_SIZE:HEADER_SIZE + pkt.length]
 
-        original_checksum = pkt.checksum
+        # Kiem tra checksum
+        ck = pkt.checksum
         pkt.checksum = 0
-        if compute_checksum(pkt / payload) != original_checksum:
-            continue # Drop corrupted packet
+        if compute_checksum(pkt / payload) != ck:
+            continue # Goi loi bo qua
 
         if pkt.type == 0 and pkt.seq_num == 0:
             # START packet
-            in_session = True
             expected_seq = 1
             received_data.clear()
             send_ack(sock, addr, 1)
 
-        elif pkt.type == 2 and in_session:
+        elif pkt.type == 2:
             # DATA packet
             if pkt.seq_num >= expected_seq + window_size:
                 continue # Outside window
-
+                    
             if pkt.seq_num in received_data:
                 send_ack(sock, addr, pkt.seq_num)
                 continue
@@ -52,7 +51,7 @@ def receiver(ip, port, window_size):
             received_data[pkt.seq_num] = payload
             send_ack(sock, addr, pkt.seq_num)
 
-        elif pkt.type == 1 and in_session:
+        elif pkt.type == 1:
             # END packet
             send_ack(sock, addr, pkt.seq_num + 1)
             break

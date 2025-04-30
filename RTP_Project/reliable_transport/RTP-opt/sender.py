@@ -15,10 +15,11 @@ def sender(receiver_ip, receiver_port, window_size):
 
     message = sys.stdin.buffer.read()
     if not message:
-        print("Error: No data to send. Please provide input using stdin or `< input.txt`.")
+        print("Error: No data to send.")
         s.close()
         return
-
+        
+    # Chia message thành các chunk <= payload_size
     chunk_size = MAX_PACKET_SIZE - HEADER_SIZE
     chunks = [message[i:i + chunk_size] for i in range(0, len(message), chunk_size)]
     total_chunks = len(chunks)
@@ -29,37 +30,47 @@ def sender(receiver_ip, receiver_port, window_size):
     start_pkt.checksum = compute_checksum(start_pkt)
     s.sendto(bytes(start_pkt), receiver_addr)
 
+    
+    # Chờ ACK cho START 
     try:
         data, _ = s.recvfrom(MAX_PACKET_SIZE)
         ack = PacketHeader(data)
-        cksum = ack.checksum
+        ack_checksum = ack.checksum
         ack.checksum = 0
-        if ack.type != 3 or ack.seq_num != 1 or compute_checksum(ack) != cksum:
+        if ack.type != 3 or ack.seq_num != 1 or compute_checksum(ack) != ack_checksum:
             raise Exception("Invalid START ACK")
     except:
         print("Error: Timeout or invalid ACK for START")
         s.close()
         return
 
-    base = 1
-    next_seq = 1
-    window = {}
-    acked = set()
+    # sliding window
+    base = 1         # seq_num nhỏ nhất trong window chưa được ACK
+    next_seq = 1     # seq_num tiếp theo được gửi
+    window = {}      # buffer lưu các gói đã gửi nhưng chưa ACK
+    acked = set()    # Luu cac goi tin da nhan duoc ACK
     timer_start = time.time()
 
+    # Gửi liên tục cho đến khi tất cả chunks được ACK
     while base <= total_chunks:
+        # Gửi gói DATA vào window nếu còn slot và còn chunk
         while next_seq < base + window_size and next_seq <= total_chunks:
             payload = chunks[next_seq - 1]
             pkt = PacketHeader(type=2, seq_num=next_seq, length=len(payload), checksum=0)
+            # Tính checksum cho header + payload
             pkt.checksum = compute_checksum(pkt / payload)
             full_pkt = pkt / payload
+            # Gửi DATA packet
             s.sendto(bytes(full_pkt), receiver_addr)
             window[next_seq] = full_pkt
             next_seq += 1
 
+        # Chờ ACK từ receiver
         try:
             data, _ = s.recvfrom(MAX_PACKET_SIZE)
             ack = PacketHeader(data)
+            
+            # Kiem tra check_sum
             cksum = ack.checksum
             ack.checksum = 0
             if compute_checksum(ack) != cksum or ack.type != 3:
@@ -92,7 +103,9 @@ def sender(receiver_ip, receiver_port, window_size):
             ack = PacketHeader(data)
             cksum = ack.checksum
             ack.checksum = 0
+            # Nếu nhận được ACK hợp lệ cho END thì break
             if ack.type == 3 and ack.seq_num == end_seq + 1 and compute_checksum(ack) == cksum:
+                print("Received ACK for END")
                 break
         except:
             continue
